@@ -49,7 +49,7 @@ def generate_primes(num_primes):
 
     #TODO YOUR CODE HERE
     if num_primes < 1:
-    return primes_list
+        return primes_list
 
     num = 2  
     while len(primes_list) < num_primes:  
@@ -89,7 +89,7 @@ def build_merkle(leaves):
 
     #TODO YOUR CODE HERE
     if len(leaves) == 0:
-    return []
+        return []
 
     tree = [leaves]
     level = 0  
