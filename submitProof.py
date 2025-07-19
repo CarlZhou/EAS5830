@@ -113,7 +113,7 @@ def prove_merkle(merkle_tree, random_indx):
     merkle_proof = []
     # TODO YOUR CODE HERE
 
-    level_index = random_index  
+    level_index = random_indx  
     for level in range(0, len(merkle_tree) - 1):  
         level_size = len(merkle_tree[level])  
         if level_index % 2 == 0:
