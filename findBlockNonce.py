@@ -2,7 +2,6 @@
 import hashlib
 import os
 import random
-import secrets
 
 def mine_block(k, prev_hash, transactions):
     """
@@ -24,7 +23,7 @@ def mine_block(k, prev_hash, transactions):
         byte_string += transaction.encode('utf-8')
     combined_data = prev_hash + byte_string
     while True:
-        nonce = secrets.token_bytes(16)
+        nonce = os.urandom(16)
         hash_object = hashlib.sha256(combined_data + nonce)
         hash_result = hash_object.digest()
         binary_hash = bin(int.from_bytes(hash_result, byteorder='big'))
