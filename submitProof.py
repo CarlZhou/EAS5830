@@ -101,7 +101,7 @@ def build_merkle(leaves):
         return []
 
     tree = [leaves]
-    level = 0  
+    level = leaves  
 
     while len(level) > 1:
         next_level = []
