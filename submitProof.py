@@ -25,7 +25,7 @@ def merkle_assignment():
     tree = build_merkle(leaves)
 
     # Select a random leaf and create a proof for that leaf
-    random_leaf_index = random.randrange(1, num_of_primes) #TODO generate a random index from primes to claim (0 is already claimed)
+    random_leaf_index = 159753 #TODO generate a random index from primes to claim (0 is already claimed)
     proof = prove_merkle(tree, random_leaf_index)
 
     # This is the same way the grader generates a challenge for sign_challenge()
@@ -155,8 +155,8 @@ def sign_challenge(challenge):
     eth_sk = acct.key
 
     # TODO YOUR CODE HERE
-    eth_encoded_msg = eth_account.messages.encode_defunct(text=challenge)  
-    eth_sig_obj = acct.sign_message(eth_encoded_msg)  
+    eth_encoded_msg =  eth_account.messages.encode_defunct(text=challenge)
+    eth_sig_obj = acct.sign_message(eth_encoded_msg)
 
     return addr, eth_sig_obj.signature.hex()
 
@@ -186,9 +186,9 @@ def send_signed_msg(proof, random_leaf):
         "nonce": nonce,
         "from": acct.address,
     }) 
-    signed_tx = w3.eth.account.sign_transaction(tx, private_key=acct.key)
-    tx_hash = w3.eth.send_raw_transaction(signed_tx.rawTransaction)  
 
+    signed_tx = w3.eth.account.sign_transaction(tx,private_key=acct.key)
+    tx_hash = w3.eth.send_raw_transaction(signed_tx.rawTransaction)
     return tx_hash
 
 
