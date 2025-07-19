@@ -180,12 +180,12 @@ def send_signed_msg(proof, random_leaf):
     contract = w3.eth.contract(address=address, abi=abi)  
     proof_hex = ['0x' + p.hex() for p in proof]
     leaf_hex  = '0x' + random_leaf.hex()
-    
+
     try:  
-        gas_estimate = contract.functions.claimPrime(leaf_hex, proof_hex).estimateGas({'from': acct.address})  
+        gas_estimate = contract.functions.submit(leaf_hex, proof_hex).estimateGas({'from': acct.address})  
     except Exception:  
         gas_estimate = 300000 
-    tx = contract.functions.claimPrime(leaf_hex, proof_hex).buildTransaction({  
+    tx = contract.functions.submit(leaf_hex, proof_hex).buildTransaction({  
         'from': acct.address,  
         'nonce': w3.eth.get_transaction_count(acct.address),  
         'gas': gas_estimate + 10000, 
