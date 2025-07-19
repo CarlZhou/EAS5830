@@ -22,14 +22,17 @@ contract Destination is AccessControl {
         _grantRole(WARDEN_ROLE, admin);
     }
 
-	function wrap(address _underlying_token, address _recipient, uint256 _amount) public onlyRole(WARDEN_ROLE) {
+	function wrap(address _underlying_token, address _recipient, uint256 _amount) 
+		public onlyRole(WARDEN_ROLE) 
+	{
 		address wrapped = underlying_tokens[_underlying_token];
 		require(wrapped != address(0), "Underlying asset not registered");
-		require(_recipient != address(0), "Cannot mint to zero address");  // NEW CHECK
+		require(_recipient != address(0), "Cannot mint to zero address");
 		BridgeToken token = BridgeToken(wrapped);
 		token.mint(_recipient, _amount);
 		emit Wrap(_underlying_token, wrapped, _recipient, _amount);
 	}
+
 
 	function unwrap(address _wrapped_token, address _recipient, uint256 _amount) public {
 		address underlying = wrapped_tokens[_wrapped_token];
