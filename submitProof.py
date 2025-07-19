@@ -180,10 +180,10 @@ def send_signed_msg(proof, random_leaf):
     contract = w3.eth.contract(address=address, abi=abi) 
 
     try:  
-        gas_estimate = contract.functions.submit(random_leaf, proof).estimateGas({'from': acct.address})  
+        gas_estimate = contract.functions.submit(proof, random_leaf).estimateGas({'from': acct.address})  
     except Exception:  
         gas_estimate = 300000 
-    tx = contract.functions.submit(random_leaf, proof).buildTransaction({  
+    tx = contract.functions.submit(proof, random_leaf).buildTransaction({  
         'from': acct.address,  
         'nonce': w3.eth.get_transaction_count(acct.address),  
         'gas': gas_estimate + 10000, 
