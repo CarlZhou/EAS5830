@@ -52,18 +52,17 @@ def generate_primes(num_primes):
         return primes_list
 
     num = 2  
-    while len(primes_list) < num_primes:  
-        is_prime = True  
-        for p in primes_list:  
-            if p * p > num:  
-                break  
-            if num % p == 0:  
-                is_prime = False  
-                break  
-        if is_prime:  
-            primes_list.append(num)  
-        num += 1  
-    return primes_list 
+    while len(primes_list) < num_primes:
+        is_prime = True
+        for prime in primes_list:
+            if num % prime == 0:
+                is_prime = False
+                break
+        if is_prime:
+            primes_list.append(num)
+        num += 1
+
+    return primes_list
 
 
 def convert_leaves(primes_list):
@@ -128,16 +127,20 @@ def prove_merkle(merkle_tree, random_indx):
     merkle_proof = []
     # TODO YOUR CODE HERE
 
-    level_index = random_indx  
-    for level in range(0, len(merkle_tree) - 1):  
-        level_size = len(merkle_tree[level])  
-        if level_index % 2 == 0:
-            sibling_index = level_index + 1  
+    level_index = 0
+    while level_index < len(merkle_tree) - 1:
+        level = merkle_tree[level_index]
+        if random_index % 2 == 0:
+            sibling_index = random_index + 1 if random_index + 1 < len(level) else random_index - 1
         else:
-            sibling_index = level_index - 1
-        sibling_hash = merkle_tree[level][sibling_index]
+            sibling_index = random_index - 1
+
+        sibling_hash = level[sibling_index]
         merkle_proof.append(sibling_hash)
-        level_index = level_index // 2  
+
+        random_index //= 2
+        level_index += 1
+
     return merkle_proof
 
 
