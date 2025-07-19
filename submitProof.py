@@ -88,24 +88,33 @@ def build_merkle(leaves):
     """
 
     #TODO YOUR CODE HERE
+def build_merkle(leaves):
+    """
+        Function to build a Merkle Tree from the list of prime numbers in bytes32 format
+        Returns the Merkle tree (tree) as a list where tree[0] is the list of leaves,
+        tree[1] is the parent hashes, and so on until tree[n] which is the root hash
+        the root hash produced by the "hash_pair" helper function
+    """
+
+    #TODO YOUR CODE HERE
     if len(leaves) == 0:
         return []
 
     tree = [leaves]
     level = 0  
-    while len(tree[level]) > 1:  
-        current_level = tree[level]  
-        next_level = []  
-        for i in range(0, len(current_level), 2):  
-            left = current_level[i]  
-            right = current_level[i+1] 
-            if left <= right:  
-                parent_hash = Web3.solidityKeccak(['bytes32', 'bytes32'], [left, right])  
-            else:  
-                parent_hash = Web3.solidityKeccak(['bytes32', 'bytes32'], [right, left])  
-            next_level.append(parent_hash)  
-        tree.append(next_level)  
-        level += 1  
+
+    while len(level) > 1:
+        next_level = []
+        for i in range(0, len(level), 2):
+            left = level[i]
+            if i + 1 < len(level):
+                right = level[i + 1]
+            else:
+                right = left  # If there's an odd number of nodes, duplicate the last node
+            next_level.append(hash_pair(left, right))
+        tree.append(next_level)
+        level = next_level
+
     return tree 
 
 
