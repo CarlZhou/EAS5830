@@ -25,7 +25,7 @@ def merkle_assignment():
     tree = build_merkle(leaves)
 
     # Select a random leaf and create a proof for that leaf
-    random_leaf_index = 0 #TODO generate a random index from primes to claim (0 is already claimed)
+    random_leaf_index = random.randrange(1, num_of_primes) #TODO generate a random index from primes to claim (0 is already claimed)
     proof = prove_merkle(tree, random_leaf_index)
 
     # This is the same way the grader generates a challenge for sign_challenge()
@@ -34,10 +34,10 @@ def merkle_assignment():
     addr, sig = sign_challenge(challenge)
 
     if sign_challenge_verify(challenge, addr, sig):
-        tx_hash = '0x'
+        # tx_hash = '0x'
         # TODO, when you are ready to attempt to claim a prime (and pay gas fees),
         #  complete this method and run your code with the following line un-commented
-        # tx_hash = send_signed_msg(proof, leaves[random_leaf_index])
+        tx_hash = send_signed_msg(proof, leaves[random_leaf_index])
 
 
 def generate_primes(num_primes):
@@ -48,8 +48,19 @@ def generate_primes(num_primes):
     primes_list = []
 
     #TODO YOUR CODE HERE
-
-    return primes_list
+    num = 2  
+    while len(primes_list) < num_primes:  
+        is_prime = True  
+        for p in primes_list:  
+            if p * p > num:  
+                break  
+            if num % p == 0:  
+                is_prime = False  
+                break  
+        if is_prime:  
+            primes_list.append(num)  
+        num += 1  
+    return primes_list 
 
 
 def convert_leaves(primes_list):
@@ -59,8 +70,10 @@ def convert_leaves(primes_list):
     """
 
     # TODO YOUR CODE HERE
-
-    return []
+    leaves_bytes32 = []  
+    for prime in primes_list:  
+        leaves_bytes32.append(prime.to_bytes(32, byteorder='big'))  
+    return leaves_bytes32  
 
 
 def build_merkle(leaves):
@@ -72,9 +85,22 @@ def build_merkle(leaves):
     """
 
     #TODO YOUR CODE HERE
-    tree = []
-
-    return tree
+    tree = [leaves]
+    level = 0  
+    while len(tree[level]) > 1:  
+        current_level = tree[level]  
+        next_level = []  
+        for i in range(0, len(current_level), 2):  
+            left = current_level[i]  
+            right = current_level[i+1] 
+            if left <= right:  
+                parent_hash = Web3.solidityKeccak(['bytes32', 'bytes32'], [left, right])  
+            else:  
+                parent_hash = Web3.solidityKeccak(['bytes32', 'bytes32'], [right, left])  
+            next_level.append(parent_hash)  
+        tree.append(next_level)  
+        level += 1  
+    return tree 
 
 
 def prove_merkle(merkle_tree, random_indx):
@@ -87,6 +113,16 @@ def prove_merkle(merkle_tree, random_indx):
     merkle_proof = []
     # TODO YOUR CODE HERE
 
+    level_index = random_index  
+    for level in range(0, len(merkle_tree) - 1):  
+        level_size = len(merkle_tree[level])  
+        if level_index % 2 == 0:
+            sibling_index = level_index + 1  
+        else:
+            sibling_index = level_index - 1
+        sibling_hash = merkle_tree[level][sibling_index]
+        merkle_proof.append(sibling_hash)
+        level_index = level_index // 2  
     return merkle_proof
 
 
@@ -104,7 +140,8 @@ def sign_challenge(challenge):
     eth_sk = acct.key
 
     # TODO YOUR CODE HERE
-    eth_sig_obj = 'placeholder'
+    eth_encoded_msg = eth_account.messages.encode_defunct(text=challenge)  
+    eth_sig_obj = acct.sign_message(eth_encoded_msg)  
 
     return addr, eth_sig_obj.signature.hex()
 
@@ -122,7 +159,23 @@ def send_signed_msg(proof, random_leaf):
     w3 = connect_to(chain)
 
     # TODO YOUR CODE HERE
-    tx_hash = 'placeholder'
+
+    contract = w3.eth.contract(address=address, abi=abi)  
+    proof_hex = [w3.toHex(p) for p in proof]  
+    leaf_hex = w3.toHex(random_leaf)  
+    try:  
+        gas_estimate = contract.functions.claimPrime(leaf_hex, proof_hex).estimateGas({'from': acct.address})  
+    except Exception:  
+        gas_estimate = 300000
+    tx = contract.functions.claimPrime(leaf_hex, proof_hex).buildTransaction({  
+        'from': acct.address,  
+        'nonce': w3.eth.get_transaction_count(acct.address),  
+        'gas': gas_estimate + 10000, 
+        'gasPrice': w3.eth.gas_price,  
+        'chainId': w3.eth.chain_id if hasattr(w3.eth, 'chain_id') else 97  
+    })  
+    signed_tx = w3.eth.account.sign_transaction(tx, private_key=acct.key)
+    tx_hash = w3.eth.send_raw_transaction(signed_tx.rawTransaction)  
 
     return tx_hash
 
