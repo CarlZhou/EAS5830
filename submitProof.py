@@ -179,19 +179,26 @@ def send_signed_msg(proof, random_leaf):
     # TODO YOUR CODE HERE
     contract = w3.eth.contract(address=address, abi=abi) 
     
-    print(f"Submitting proof for leaf {random_leaf} with proof {proof} from account {acct.address}")
+    proof_hex = proof
+    leaf_hex  = random_leaf
 
-    try:  
-        gas_estimate = contract.functions.submit(proof, random_leaf).estimateGas({'from': acct.address})  
-    except Exception:  
-        gas_estimate = 300000 
-    tx = contract.functions.submit(proof, random_leaf).buildTransaction({  
-        'from': acct.address,  
-        'nonce': w3.eth.get_transaction_count(acct.address),  
-        'gas': gas_estimate + 10000, 
-        'gasPrice': w3.eth.gas_price,  
-        'chainId': w3.eth.chain_id if hasattr(w3.eth, 'chain_id') else 97
-    })  
+    # Estimate gas (fallback if it errors)
+    try:
+        gas_estimate = contract.functions.submit(proof_hex, leaf_hex) \
+                               .estimateGas({'from': acct.address})
+    except:
+        gas_estimate = 300_000
+
+    # Build the transaction (Web3.py v6 uses snake_case)
+    tx = contract.functions.submit(proof_hex, leaf_hex) \
+                  .build_transaction({
+                      'from':     acct.address,
+                      'nonce':    w3.eth.get_transaction_count(acct.address),
+                      'gas':      gas_estimate + 10_000,
+                      'gasPrice': w3.eth.gas_price,
+                      'chainId':  w3.eth.chain_id if hasattr(w3.eth, 'chain_id') else 97
+                  })
+    
     signed_tx = w3.eth.account.sign_transaction(tx, private_key=acct.key)
     tx_hash = w3.eth.send_raw_transaction(signed_tx.rawTransaction)
 
