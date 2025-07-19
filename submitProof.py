@@ -178,8 +178,8 @@ def send_signed_msg(proof, random_leaf):
 
     # TODO YOUR CODE HERE
     contract = w3.eth.contract(address=address, abi=abi)  
-    proof_hex = [w3.toHex(p) for p in proof]  
-    leaf_hex = w3.toHex(random_leaf)  
+    proof_hex = [Web3.toHex(p) for p in proof]  
+    leaf_hex = Web3.toHex(random_leaf)  
     try:  
         gas_estimate = contract.functions.claimPrime(leaf_hex, proof_hex).estimateGas({'from': acct.address})  
     except Exception:  
