@@ -34,7 +34,7 @@ def merkle_assignment():
     addr, sig = sign_challenge(challenge)
 
     if sign_challenge_verify(challenge, addr, sig):
-        # tx_hash = '0x'
+        tx_hash = '0x'
         # TODO, when you are ready to attempt to claim a prime (and pay gas fees),
         #  complete this method and run your code with the following line un-commented
         tx_hash = send_signed_msg(proof, leaves[random_leaf_index])
@@ -48,6 +48,9 @@ def generate_primes(num_primes):
     primes_list = []
 
     #TODO YOUR CODE HERE
+    if num_primes < 1:
+    return primes_list
+
     num = 2  
     while len(primes_list) < num_primes:  
         is_prime = True  
@@ -85,6 +88,9 @@ def build_merkle(leaves):
     """
 
     #TODO YOUR CODE HERE
+    if len(leaves) == 0:
+    return []
+
     tree = [leaves]
     level = 0  
     while len(tree[level]) > 1:  
@@ -161,19 +167,16 @@ def send_signed_msg(proof, random_leaf):
     # TODO YOUR CODE HERE
 
     contract = w3.eth.contract(address=address, abi=abi)  
-    proof_hex = [w3.toHex(p) for p in proof]  
-    leaf_hex = w3.toHex(random_leaf)  
-    try:  
-        gas_estimate = contract.functions.claimPrime(leaf_hex, proof_hex).estimateGas({'from': acct.address})  
-    except Exception:  
-        gas_estimate = 300000
-    tx = contract.functions.claimPrime(leaf_hex, proof_hex).buildTransaction({  
-        'from': acct.address,  
-        'nonce': w3.eth.get_transaction_count(acct.address),  
-        'gas': gas_estimate + 10000, 
-        'gasPrice': w3.eth.gas_price,  
-        'chainId': w3.eth.chain_id if hasattr(w3.eth, 'chain_id') else 97  
-    })  
+    nonce = w3.eth.get_transaction_count(acct.address)
+    gas_price = w3.eth.gas_price
+
+    tx = contract.functions.submit(proof, random_leaf).build_transaction({
+        "chainId": 97,  # BSC Mainnet chain ID
+        "gas": 2000000,
+        "gasPrice": gas_price,
+        "nonce": nonce,
+        "from": acct.address,
+    }) 
     signed_tx = w3.eth.account.sign_transaction(tx, private_key=acct.key)
     tx_hash = w3.eth.send_raw_transaction(signed_tx.rawTransaction)  
 
