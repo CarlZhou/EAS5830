@@ -2,7 +2,7 @@
 import hashlib
 import os
 import random
-
+import secrets
 
 def mine_block(k, prev_hash, transactions):
     """
@@ -19,7 +19,18 @@ def mine_block(k, prev_hash, transactions):
         return b'\x00'
 
     # TODO your code to find a nonce here
-
+    byte_string = b''
+    for transaction in transactions:
+        byte_string += transaction.encode('utf-8')
+    combined_data = prev_hash + byte_string
+    while True:
+        nonce = secrets.token_bytes(16)
+        hash_object = hashlib.sha256(combined_data + nonce)
+        hash_result = hash_object.digest()
+        binary_hash = bin(int.from_bytes(hash_result, byteorder='big'))
+        if binary_hash.endswith('0' * k):
+            break
+    
     assert isinstance(nonce, bytes), 'nonce should be of type bytes'
     return nonce
 
