@@ -177,15 +177,13 @@ def send_signed_msg(proof, random_leaf):
     w3 = connect_to(chain)
 
     # TODO YOUR CODE HERE
-    contract = w3.eth.contract(address=address, abi=abi)  
-    proof_hex = ['0x' + p.hex() for p in proof]
-    leaf_hex  = '0x' + random_leaf.hex()
+    contract = w3.eth.contract(address=address, abi=abi) 
 
     try:  
-        gas_estimate = contract.functions.submit(leaf_hex, proof_hex).estimateGas({'from': acct.address})  
+        gas_estimate = contract.functions.submit(random_leaf, proof).estimateGas({'from': acct.address})  
     except Exception:  
         gas_estimate = 300000 
-    tx = contract.functions.submit(leaf_hex, proof_hex).buildTransaction({  
+    tx = contract.functions.submit(random_leaf, proof).buildTransaction({  
         'from': acct.address,  
         'nonce': w3.eth.get_transaction_count(acct.address),  
         'gas': gas_estimate + 10000, 
