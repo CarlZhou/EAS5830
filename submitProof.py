@@ -130,15 +130,15 @@ def prove_merkle(merkle_tree, random_indx):
     level_index = 0
     while level_index < len(merkle_tree) - 1:
         level = merkle_tree[level_index]
-        if random_index % 2 == 0:
-            sibling_index = random_index + 1 if random_index + 1 < len(level) else random_index - 1
+        if random_indx % 2 == 0:
+            sibling_index = random_indx + 1 if random_indx + 1 < len(level) else random_indx - 1
         else:
-            sibling_index = random_index - 1
+            sibling_index = random_indx - 1
 
         sibling_hash = level[sibling_index]
         merkle_proof.append(sibling_hash)
 
-        random_index //= 2
+        random_indx //= 2
         level_index += 1
 
     return merkle_proof
