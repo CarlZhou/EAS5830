@@ -178,6 +178,8 @@ def send_signed_msg(proof, random_leaf):
 
     # TODO YOUR CODE HERE
     contract = w3.eth.contract(address=address, abi=abi) 
+    
+    print(f"Submitting proof for leaf {random_leaf} with proof {proof} from account {acct.address}")
 
     try:  
         gas_estimate = contract.functions.submit(proof, random_leaf).estimateGas({'from': acct.address})  
