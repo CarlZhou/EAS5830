@@ -23,23 +23,25 @@ contract Source is AccessControl {
 
 	function deposit(address _token, address _recipient, uint256 _amount ) public {
 		//YOUR CODE HERE
-		require(registeredTokens[token], "Token not registered");
-        BridgeToken(token).transferFrom(msg.sender, address(this), amount);
-        emit Deposit(token, msg.sender, amount);
+        require(approved[_token] == true, "Token not registered");
+        IERC20 token = IERC20(_token);
+        require(token.transferFrom(msg.sender, address(this), _amount), "Token transfer failed");
+        emit Deposit(_token, _recipient, _amount);
 	}
 
 	function withdraw(address _token, address _recipient, uint256 _amount ) onlyRole(WARDEN_ROLE) public {
 		//YOUR CODE HERE
-		require(registeredTokens[token], "Token not registered");
-        BridgeToken(token).transfer(recipient, amount);
-        emit Withdraw(token, recipient, amount);
+        require(approved[_token] == true, "Token not registered");
+        IERC20 token = IERC20(_token);
+        require(token.transfer(_recipient, _amount), "Token transfer failed");
+        emit Withdrawal(_token, _recipient, _amount);
 	}
 
 	function registerToken(address _token) onlyRole(ADMIN_ROLE) public {
 		//YOUR CODE HERE
-		require(!registeredTokens[token], "Token already registered");
-        registeredTokens[token] = true;
-        emit Registration(token);
+        require(!approved[_token], "Token already registered");
+        approved[_token] = true;
+        emit Registration(_token);
 	}
 
 
