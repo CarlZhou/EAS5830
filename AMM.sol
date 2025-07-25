@@ -57,6 +57,21 @@ contract AMM is AccessControl{
 		uint256 swapAmt;
 
 		//YOUR CODE HERE 
+		bool isSellingTokenA = (sellToken == tokenA);
+		if (isSellingTokenA) {
+            qtyB = (sellAmount * ERC20(tokenB).balanceOf(address(this))) / (ERC20(tokenA).balanceOf(address(this)) + sellAmount);
+            qtyA = sellAmount;
+        } else {
+            qtyA = (sellAmount * ERC20(tokenA).balanceOf(address(this))) / (ERC20(tokenB).balanceOf(address(this)) + sellAmount);
+            qtyB = sellAmount;
+        }
+		ERC20(sellToken).transferFrom(msg.sender, address(this), sellAmount);
+
+		if (isSellingTokenA) {
+            ERC20(tokenB).transfer(msg.sender, qtyB);
+        } else {
+            ERC20(tokenA).transfer(msg.sender, qtyA);
+        }
 
 		uint256 new_invariant = ERC20(tokenA).balanceOf(address(this))*ERC20(tokenB).balanceOf(address(this));
 		require( new_invariant >= invariant, 'Bad trade' );
@@ -69,6 +84,10 @@ contract AMM is AccessControl{
 	function provideLiquidity( uint256 amtA, uint256 amtB ) public {
 		require( amtA > 0 || amtB > 0, 'Cannot provide 0 liquidity' );
 		//YOUR CODE HERE
+		ERC20(tokenA).transferFrom(msg.sender, address(this), amtA);
+		ERC20(tokenB).transferFrom(msg.sender, address(this), amtB);
+
+		invariant += amtA * amtB;
 		emit LiquidityProvision( msg.sender, amtA, amtB );
 	}
 
