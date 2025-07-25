@@ -65,6 +65,7 @@ contract AMM is AccessControl{
             qtyA = (sellAmount * ERC20(tokenA).balanceOf(address(this))) / (ERC20(tokenB).balanceOf(address(this)) + sellAmount);
             qtyB = sellAmount;
         }
+		require(qtyA > 0 && qtyB > 0, "amount must be greater than 0"); 
 		ERC20(sellToken).transferFrom(msg.sender, address(this), sellAmount);
 
 		if (isSellingTokenA) {
