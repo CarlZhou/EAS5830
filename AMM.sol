@@ -56,23 +56,15 @@ contract AMM is AccessControl{
 		uint256 qtyB;
 		uint256 swapAmt;
 
-		//YOUR CODE HERE 
-		bool isSellingTokenA = (sellToken == tokenA);
-		if (isSellingTokenA) {
-            qtyB = (sellAmount * ERC20(tokenB).balanceOf(address(this))) / (ERC20(tokenA).balanceOf(address(this)) + sellAmount);
-            qtyA = sellAmount;
-        } else {
-            qtyA = (sellAmount * ERC20(tokenA).balanceOf(address(this))) / (ERC20(tokenB).balanceOf(address(this)) + sellAmount);
-            qtyB = sellAmount;
-        }
-		require(qtyA > 0 && qtyB > 0, "amount must be greater than 0"); 
-		ERC20(sellToken).transferFrom(msg.sender, address(this), sellAmount);
+		address buyToken = sellToken == tokenA ? tokenB : tokenA;
+		uint256 qtySell = ERC20(sellToken).balanceOf(address(this));
+		uint256 qtyBuy = ERC20(buyToken).balanceOf(address(this));
+		uint256 netAmount = (sellAmount * (10000 - feebps)) / 10000;
+		swapAmt = (qtyBuy * netAmount) / (qtySell + netAmount);
 
-		if (isSellingTokenA) {
-            ERC20(tokenB).transfer(msg.sender, qtyB);
-        } else {
-            ERC20(tokenA).transfer(msg.sender, qtyA);
-        }
+		ERC20(sellToken).transferFrom(msg.sender, address(this), sellAmount);
+		ERC20(buyToken).transfer(msg.sender, swapAmt);
+		emit Swap(sellToken, buyToken, sellAmount, swapAmt);
 
 		uint256 new_invariant = ERC20(tokenA).balanceOf(address(this))*ERC20(tokenB).balanceOf(address(this));
 		require( new_invariant >= invariant, 'Bad trade' );
