@@ -50,21 +50,28 @@ def scan_blocks(chain, start_block, end_block, contract_address, eventfile='depo
     else:
         print( f"Scanning blocks {start_block} - {end_block} on {chain}" )
 
+    csv_data = []
+
     if end_block - start_block < 30:
         event_filter = contract.events.Deposit.create_filter(from_block=start_block,to_block=end_block,argument_filters=arg_filter)
         events = event_filter.get_all_entries()
-        #print( f"Got {len(events)} entries for block {block_num}" )
+        print( f"Got {len(events)} entries for block {block_num}" )
         # TODO YOUR CODE HERE
         __write_to_csv(chain, events, eventfile)
     else:
         for block_num in range(start_block,end_block+1):
             event_filter = contract.events.Deposit.create_filter(from_block=block_num,to_block=block_num,argument_filters=arg_filter)
             events = event_filter.get_all_entries()
-            #print( f"Got {len(events)} entries for block {block_num}" )
+            print( f"Got {len(events)} entries for block {block_num}" )
             # TODO YOUR CODE HERE
             __write_to_csv(chain, events, eventfile)
 
-def __write_to_csv(chain, events, eventfile):
+    # Write the collected data to a CSV file
+    df = pd.DataFrame(csv_data)
+    df.to_csv(eventfile, index=False)
+    print(f"Written {len(events)} events to {eventfile}.")
+
+def __write_to_csv(chain, events, csv_data):
     """
     Write the events to a CSV file.
     """
@@ -72,10 +79,9 @@ def __write_to_csv(chain, events, eventfile):
         print("No events found.")
         return
 
-    data = []
     for event in events:
         print("Append event: ", event)
-        data.append({
+        csv_data.append({
             'chain': chain,
             'token': event["args"]["token"],
             'recipient': event["args"]["recipient"],
@@ -83,7 +89,3 @@ def __write_to_csv(chain, events, eventfile):
             'transactionHash': event["transactionHash"].hex(),
             'address': event["address"]
         })
-
-    df = pd.DataFrame(data)
-    df.to_csv(eventfile, index=False)
-    print(f"Written {len(events)} events to {eventfile}.")
