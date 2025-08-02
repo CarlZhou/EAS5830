@@ -74,13 +74,14 @@ def __write_to_csv(chain, events, eventfile):
 
     data = []
     for event in events:
+        print("Append event: ", event)
         data.append({
             'chain': chain,
-            'token': event.args['token'],
-            'recipient': event.args['recipient'],
-            'amount': event.args['amount'],
-            'transactionHash': event.transactionHash.hex(),
-            'address': event.address
+            'token': event["args"]["token"],
+            'recipient': event["args"]["recipient"],
+            'amount': str(event["args"]["amount"]),
+            'transactionHash': event["transactionHash"].hex(),
+            'address': event["address"]
         })
 
     df = pd.DataFrame(data)
