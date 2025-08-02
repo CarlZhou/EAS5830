@@ -57,14 +57,14 @@ def scan_blocks(chain, start_block, end_block, contract_address, eventfile='depo
         events = event_filter.get_all_entries()
         print( f"Got {len(events)} entries for block {block_num}" )
         # TODO YOUR CODE HERE
-        __write_to_csv(chain, events, eventfile)
+        __write_to_csv(chain, events, csv_data)
     else:
         for block_num in range(start_block,end_block+1):
             event_filter = contract.events.Deposit.create_filter(from_block=block_num,to_block=block_num,argument_filters=arg_filter)
             events = event_filter.get_all_entries()
             print( f"Got {len(events)} entries for block {block_num}" )
             # TODO YOUR CODE HERE
-            __write_to_csv(chain, events, eventfile)
+            __write_to_csv(chain, events, csv_data)
 
     # Write the collected data to a CSV file
     df = pd.DataFrame(csv_data)
