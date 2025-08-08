@@ -54,8 +54,7 @@ def scan_blocks(chain, contract_info="contract_info.json"):
     w3_src = connect_to('avax')
     w3_dst = connect_to('bsc')
 
-    # Load contract metadata (addresses + ABIs) and the warden key
-    import os
+    # --- Load contract metadata (addresses + ABIs) ---
     try:
         with open(contract_info, 'r') as f:
             cfg = json.load(f)
@@ -63,7 +62,8 @@ def scan_blocks(chain, contract_info="contract_info.json"):
         print(f"Failed to read {contract_info}: {e}")
         return 0
 
-    cs = Web3.to_checksum_address
+    def cs(addr):  # checksum helper
+        return Web3.to_checksum_address(addr)
 
     try:
         src_meta = cfg['source']
@@ -76,42 +76,48 @@ def scan_blocks(chain, contract_info="contract_info.json"):
         print(f"Bad contract_info.json format/addresses: {e}")
         return 0
 
-    # Build contract objects
     src = w3_src.eth.contract(address=src_addr, abi=src_abi)
     dst = w3_dst.eth.contract(address=dst_addr, abi=dst_abi)
 
-    # Warden private key (throwaway test key)
-    warden_pk = "0x2dba43e3a378aa051550f21be3fee843998d3e70ababd2c615a3dba3fc8c826b"
+    # --- Warden private key (throwaway test key) ---
+    import os
+    warden_pk = (cfg.get('warden', {}) or {}).get('privateKey') \
+                or os.environ.get('WARDEN_PK') \
+                or os.environ.get('PK') \
+                or os.environ.get('PRIVATE_KEY')
+    if not warden_pk:
+        print("No warden private key found. Put it in contract_info.json under warden.privateKey or set env WARDEN_PK.")
+        return 0
 
     acct_src = w3_src.eth.account.from_key(warden_pk)
     acct_dst = w3_dst.eth.account.from_key(warden_pk)
 
-    # Maintain nonces so multiple txs in one run don't collide
+    # Keep nonces per chain so multiple txs don’t collide
     nonces = {
         ('source', acct_src.address): w3_src.eth.get_transaction_count(acct_src.address),
         ('destination', acct_dst.address): w3_dst.eth.get_transaction_count(acct_dst.address),
     }
 
-    def send_fn_tx(w3, account, fn, which_chain):
-        """Build, sign, and send a transaction for the given contract function."""
+    def send_fn_tx(w3c, account, fn, which_chain):
+        """Build, sign, and send a tx for the given contract function."""
         base = {
             'from': account.address,
             'nonce': nonces[(which_chain, account.address)],
             'value': 0,
-            'chainId': w3.eth.chain_id
+            'chainId': w3c.eth.chain_id
         }
         # Prefer EIP-1559 if baseFee exists; else legacy gasPrice
         try:
-            latest = w3.eth.get_block('latest')
+            latest = w3c.eth.get_block('latest')
             base_fee = latest.get('baseFeePerGas', None)
             if base_fee is not None:
-                max_priority = w3.to_wei(2, 'gwei')
+                max_priority = w3c.to_wei(2, 'gwei')
                 base['maxPriorityFeePerGas'] = max_priority
                 base['maxFeePerGas'] = int(base_fee + max_priority * 2)
             else:
-                base['gasPrice'] = w3.eth.gas_price
+                base['gasPrice'] = w3c.eth.gas_price
         except Exception:
-            base['gasPrice'] = w3.eth.gas_price
+            base['gasPrice'] = w3c.eth.gas_price
 
         # Estimate gas with a safety bump
         try:
@@ -120,16 +126,15 @@ def scan_blocks(chain, contract_info="contract_info.json"):
             base['gas'] = 800000
 
         tx = fn.build_transaction(base)
-        signed = w3.eth.account.sign_transaction(tx, private_key=warden_pk)
-        tx_hash = w3.eth.send_raw_transaction(signed.rawTransaction)
+        signed = w3c.eth.account.sign_transaction(tx, private_key=warden_pk)
+        tx_hash = w3c.eth.send_raw_transaction(signed.rawTransaction)
         nonces[(which_chain, account.address)] += 1
-        rcpt = w3.eth.wait_for_transaction_receipt(tx_hash, timeout=180)
-        return rcpt
+        return w3c.eth.wait_for_transaction_receipt(tx_hash, timeout=180)
 
     processed = 0
 
     if chain == 'source':
-        # See Deposit(token, recipient, amount) on SOURCE → call wrap() on DESTINATION
+        # Listen for Deposit(token, recipient, amount) on SOURCE → call wrap(...) on DESTINATION
         tip = w3_src.eth.block_number
         frm = max(0, tip - 5)
         try:
@@ -150,7 +155,7 @@ def scan_blocks(chain, contract_info="contract_info.json"):
                 print(f" wrap() failed: {e}")
 
     elif chain == 'destination':
-        # See Unwrap(underlying_token, wrapped_token, frm, to, amount) on DEST → call withdraw() on SOURCE
+        # Listen for Unwrap(underlying_token, ..., to, amount) on DESTINATION → call withdraw(...) on SOURCE
         tip = w3_dst.eth.block_number
         frm = max(0, tip - 5)
         try:
