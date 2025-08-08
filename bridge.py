@@ -50,127 +50,58 @@ def scan_blocks(chain, contract_info="contract_info.json"):
         return 0
     
     #YOUR CODE HERE
-    # Connect to both chains using the provided helper
-    w3_src = connect_to('source')
-    w3_dst = connect_to('destination')
+    w3_src = connect_to('avax')
+    w3_dest = connect_to('bsc')
 
-    # Load contract metadata (addresses + ABIs)
-    src_meta = get_contract_info('source', contract_info)
-    dst_meta = get_contract_info('destination', contract_info)
-    if not src_meta or not dst_meta:
-        print("Missing source/destination info in contract_info.json")
-        return 0
+    src_contract_info = get_contract_info('source')
+    src_contract = w3_src.eth.contract(address=src_contract_info['address'], abi=src_contract_info['abi'])
 
-    # Read the private key
-    warden_pk = None
-    try:
-        with open('sk.txt', 'r') as f:
-            warden_pk = f.read().strip()
-    except Exception as e:
-        print(f"Failed to read private key: {e}")
-        return 0
+    dest_contract_info = get_contract_info('destination')
+    dest_contract = w3_dest.eth.contract(address=dest_contract_info['address'], abi=dest_contract_info['abi'])
 
-    # Build contract objects
-    cs = Web3.to_checksum_address
-    try:
-        src_addr = cs(src_meta['address'])
-        dst_addr = cs(dst_meta['address'])
-    except Exception as e:
-        print(f"Bad address format in contract_info.json: {e}")
-        return 0
+    w3 = w3_src if chain=='source' else w3_dest
+    end_block = w3.eth.get_block_number()
+    start_block = end_block - 5
 
-    src = w3_src.eth.contract(address=src_addr, abi=src_meta['abi'])
-    dst = w3_dst.eth.contract(address=dst_addr, abi=dst_meta['abi'])
+    arg_filter = {}
 
-    # Signers on each chain (same EOA/key across EVM chains)
-    acct_src = w3_src.eth.account.from_key(warden_pk)
-    acct_dst = w3_dst.eth.account.from_key(warden_pk)
 
-    # Maintain nonces locally so multiple txs in one run don't collide
-    nonces = {
-        ('source', acct_src.address): w3_src.eth.get_transaction_count(acct_src.address),
-        ('destination', acct_dst.address): w3_dst.eth.get_transaction_count(acct_dst.address),
-    }
+    for block_num in range(start_block,end_block+1):
+        if chain == 'source':
+            event_filter = src_contract.events.Deposit.create_filter(fromBlock=start_block, \
+                toBlock=end_block,argument_filters=arg_filter)
+            events = event_filter.get_all_entries()
+            return
+            call_function('wrap', src_contract, dest_contract, events, w3_dest)
+        elif chain == 'destination':
+            event_filter = dest_contract.events.Unwrap.create_filter(fromBlock=start_block,  \
+                toBlock=end_block,argument_filters=arg_filter)
+            events = event_filter.get_all_entries()
+            call_function('withdraw', src_contract, dest_contract, events, w3_src)
+        
+def call_function(f_name, src_contract, dest_contract, events, w3):
+    warden_private_key = '0x2dba43e3a378aa051550f21be3fee843998d3e70ababd2c615a3dba3fc8c826b'
+    warden_account = w3.eth.account.from_key(warden_private_key)
+    gas = 500000 if f_name=='withdraw' else 5000000
 
-    def send_fn_tx(w3, account, fn, which_chain):
-        """Build, sign, and send a tx for the given contract function."""
-        base = {
-            'from': account.address,
-            'nonce': nonces[(which_chain, account.address)],
-            'value': 0,
-            'chainId': w3.eth.chain_id
+    transaction_dict = {
+            "from": warden_account.address,
+            "nonce": w3.eth.get_transaction_count(warden_account.address),
+            "gas": gas,
+            "gasPrice": w3.eth.gas_price + 10000
         }
-        # Prefer EIP-1559 when available, else legacy gasPrice
-        try:
-            latest = w3.eth.get_block('latest')
-            base_fee = latest.get('baseFeePerGas', None)
-            if base_fee is not None:
-                max_priority = w3.to_wei(2, 'gwei')
-                base['maxPriorityFeePerGas'] = max_priority
-                base['maxFeePerGas'] = int(base_fee + max_priority * 2)
-            else:
-                base['gasPrice'] = w3.eth.gas_price
-        except Exception:
-            base['gasPrice'] = w3.eth.gas_price
+    for event in events:
+        if f_name == 'wrap':
+            returned = dest_contract.functions.wrap(event["args"]["token"],
+                        event["args"]["recipient"],
+                        event["args"]["amount"])
+        elif f_name == 'withdraw':
+            returned = src_contract.functions.withdraw(event["args"]["underlying_token"],
+                        event["args"]["to"],
+                        event["args"]["amount"])
+        transaction = returned.build_transaction(transaction_dict)
 
-        # Estimate gas (with a small safety bump)
-        try:
-            base['gas'] = int(fn.estimate_gas({'from': account.address}) * 1.2)
-        except Exception:
-            base['gas'] = 800000
-
-        tx = fn.build_transaction(base)
-        signed = w3.eth.account.sign_transaction(tx, private_key=warden_pk)
-        tx_hash = w3.eth.send_raw_transaction(signed.rawTransaction)
-        nonces[(which_chain, account.address)] += 1
-        rcpt = w3.eth.wait_for_transaction_receipt(tx_hash, timeout=180)
-        return rcpt
-
-    processed = 0
-
-    if chain == 'source':
-        # Scan last 5 blocks on SOURCE for Deposit(token, recipient, amount)
-        tip = w3_src.eth.block_number
-        frm = max(0, tip - 5)
-        try:
-            logs = src.events.Deposit().get_logs(fromBlock=frm, toBlock=tip)
-        except Exception:
-            logs = []
-        for ev in logs:
-            args = ev['args']
-            token     = cs(args['token'])
-            recipient = cs(args['recipient'])
-            amount    = int(args['amount'])
-
-            print(f"[{datetime.utcnow()}] Deposit on SOURCE → wrap on DEST: token={token}, to={recipient}, amount={amount}")
-            try:
-                rcpt = send_fn_tx(w3_dst, acct_dst, dst.functions.wrap(token, recipient, amount), 'destination')
-                print(f" wrap() tx: {rcpt.transactionHash.hex()} status={rcpt.status}")
-                processed += 1
-            except Exception as e:
-                print(f" wrap() failed: {e}")
-
-    elif chain == 'destination':
-        # Scan last 5 blocks on DESTINATION for Unwrap(underlying_token, wrapped_token, frm, to, amount)
-        tip = w3_dst.eth.block_number
-        frm = max(0, tip - 5)
-        try:
-            logs = dst.events.Unwrap().get_logs(fromBlock=frm, toBlock=tip)
-        except Exception:
-            logs = []
-        for ev in logs:
-            args = ev['args']
-            underlying = cs(args['underlying_token'])
-            recipient  = cs(args['to'])
-            amount     = int(args['amount'])
-
-            print(f"[{datetime.utcnow()}] Unwrap on DEST → withdraw on SRC: underlying={underlying}, to={recipient}, amount={amount}")
-            try:
-                rcpt = send_fn_tx(w3_src, acct_src, src.functions.withdraw(underlying, recipient, amount), 'source')
-                print(f" withdraw() tx: {rcpt.transactionHash.hex()} status={rcpt.status}")
-                processed += 1
-            except Exception as e:
-                print(f" withdraw() failed: {e}")
-
-    return processed
-
+        signed_tx = w3.eth.account.sign_transaction(transaction, private_key=warden_private_key)
+        tx_hash = w3.eth.send_raw_transaction(signed_tx.rawTransaction)
+        w3.eth.wait_for_transaction_receipt(tx_hash)
+        print("**Successfully send",f_name,"raw transaction! tx_hash:",tx_hash.hex())
