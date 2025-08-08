@@ -50,24 +50,16 @@ def scan_blocks(chain, contract_info="contract_info.json"):
         return 0
     
     #YOUR CODE HERE
-    # Connect to both chains
+    # Connect to both chains using the provided helper
     w3_src = connect_to('source')
     w3_dst = connect_to('destination')
 
-    # Load contract info (addresses + ABIs)
-    src_info = get_contract_info('source', contract_info)
-    dst_info = get_contract_info('destination', contract_info)
-
-    if not src_info or not dst_info:
-        print("Failed to load contract info")
+    # Load contract metadata (addresses + ABIs)
+    src_meta = get_contract_info('source', contract_info)
+    dst_meta = get_contract_info('destination', contract_info)
+    if not src_meta or not dst_meta:
+        print("Missing source/destination info in contract_info.json")
         return 0
-
-    cs = Web3.to_checksum_address
-    src_addr = cs(src_info['address'])
-    dst_addr = cs(dst_info['address'])
-
-    src = w3_src.eth.contract(address=src_addr, abi=src_info['abi'])
-    dst = w3_dst.eth.contract(address=dst_addr, abi=dst_info['abi'])
 
     # Read the private key
     warden_pk = None
@@ -78,18 +70,37 @@ def scan_blocks(chain, contract_info="contract_info.json"):
         print(f"Failed to read private key: {e}")
         return 0
 
-    # Prepare local accounts for signing
+    # Build contract objects
+    cs = Web3.to_checksum_address
+    try:
+        src_addr = cs(src_meta['address'])
+        dst_addr = cs(dst_meta['address'])
+    except Exception as e:
+        print(f"Bad address format in contract_info.json: {e}")
+        return 0
+
+    src = w3_src.eth.contract(address=src_addr, abi=src_meta['abi'])
+    dst = w3_dst.eth.contract(address=dst_addr, abi=dst_meta['abi'])
+
+    # Signers on each chain (same EOA/key across EVM chains)
     acct_src = w3_src.eth.account.from_key(warden_pk)
     acct_dst = w3_dst.eth.account.from_key(warden_pk)
 
-    def send_fn_tx(w3, account, fn):
-        # Build a transaction for the given contract function
+    # Maintain nonces locally so multiple txs in one run don't collide
+    nonces = {
+        ('source', acct_src.address): w3_src.eth.get_transaction_count(acct_src.address),
+        ('destination', acct_dst.address): w3_dst.eth.get_transaction_count(acct_dst.address),
+    }
+
+    def send_fn_tx(w3, account, fn, which_chain):
+        """Build, sign, and send a tx for the given contract function."""
         base = {
             'from': account.address,
-            'nonce': w3.eth.get_transaction_count(account.address),
-            'value': 0
+            'nonce': nonces[(which_chain, account.address)],
+            'value': 0,
+            'chainId': w3.eth.chain_id
         }
-        # EIP-1559 if supported, else legacy gasPrice
+        # Prefer EIP-1559 when available, else legacy gasPrice
         try:
             latest = w3.eth.get_block('latest')
             base_fee = latest.get('baseFeePerGas', None)
@@ -102,7 +113,7 @@ def scan_blocks(chain, contract_info="contract_info.json"):
         except Exception:
             base['gasPrice'] = w3.eth.gas_price
 
-        # Estimate gas (fallback if estimation fails)
+        # Estimate gas (with a small safety bump)
         try:
             base['gas'] = int(fn.estimate_gas({'from': account.address}) * 1.2)
         except Exception:
@@ -111,46 +122,55 @@ def scan_blocks(chain, contract_info="contract_info.json"):
         tx = fn.build_transaction(base)
         signed = w3.eth.account.sign_transaction(tx, private_key=warden_pk)
         tx_hash = w3.eth.send_raw_transaction(signed.rawTransaction)
-        receipt = w3.eth.wait_for_transaction_receipt(tx_hash, timeout=180)
-        return receipt
+        nonces[(which_chain, account.address)] += 1
+        rcpt = w3.eth.wait_for_transaction_receipt(tx_hash, timeout=180)
+        return rcpt
 
     processed = 0
+
     if chain == 'source':
-        # Look for Deposit events on the source chain
-        latest = w3_src.eth.block_number
-        frm = max(0, latest - 5)
+        # Scan last 5 blocks on SOURCE for Deposit(token, recipient, amount)
+        tip = w3_src.eth.block_number
+        frm = max(0, tip - 5)
         try:
-            logs = src.events.Deposit().get_logs(fromBlock=frm, toBlock=latest)
+            logs = src.events.Deposit().get_logs(fromBlock=frm, toBlock=tip)
         except Exception:
             logs = []
         for ev in logs:
             args = ev['args']
-            token = cs(args['token'])
+            token     = cs(args['token'])
             recipient = cs(args['recipient'])
-            amount = int(args['amount'])
-            print(f"[{datetime.utcnow()}] Deposit detected on source: token={token}, to={recipient}, amount={amount}")
-            # Call wrap on destination
-            receipt = send_fn_tx(w3_dst, acct_dst, dst.functions.wrap(token, recipient, amount))
-            print(f" -> wrap tx on destination: {receipt.transactionHash.hex()} status={receipt.status}")
-            processed += 1
+            amount    = int(args['amount'])
+
+            print(f"[{datetime.utcnow()}] Deposit on SOURCE → wrap on DEST: token={token}, to={recipient}, amount={amount}")
+            try:
+                rcpt = send_fn_tx(w3_dst, acct_dst, dst.functions.wrap(token, recipient, amount), 'destination')
+                print(f" wrap() tx: {rcpt.transactionHash.hex()} status={rcpt.status}")
+                processed += 1
+            except Exception as e:
+                print(f" wrap() failed: {e}")
 
     elif chain == 'destination':
-        # Look for Unwrap events on the destination chain
-        latest = w3_dst.eth.block_number
-        frm = max(0, latest - 5)
+        # Scan last 5 blocks on DESTINATION for Unwrap(underlying_token, wrapped_token, frm, to, amount)
+        tip = w3_dst.eth.block_number
+        frm = max(0, tip - 5)
         try:
-            logs = dst.events.Unwrap().get_logs(fromBlock=frm, toBlock=latest)
+            logs = dst.events.Unwrap().get_logs(fromBlock=frm, toBlock=tip)
         except Exception:
             logs = []
         for ev in logs:
             args = ev['args']
             underlying = cs(args['underlying_token'])
-            recipient = cs(args['to'])
-            amount = int(args['amount'])
-            print(f"[{datetime.utcnow()}] Unwrap detected on destination: underlying={underlying}, to={recipient}, amount={amount}")
-            # Call withdraw on source
-            receipt = send_fn_tx(w3_src, acct_src, src.functions.withdraw(underlying, recipient, amount))
-            print(f" -> withdraw tx on source: {receipt.transactionHash.hex()} status={receipt.status}")
-            processed += 1
+            recipient  = cs(args['to'])
+            amount     = int(args['amount'])
+
+            print(f"[{datetime.utcnow()}] Unwrap on DEST → withdraw on SRC: underlying={underlying}, to={recipient}, amount={amount}")
+            try:
+                rcpt = send_fn_tx(w3_src, acct_src, src.functions.withdraw(underlying, recipient, amount), 'source')
+                print(f" withdraw() tx: {rcpt.transactionHash.hex()} status={rcpt.status}")
+                processed += 1
+            except Exception as e:
+                print(f" withdraw() failed: {e}")
 
     return processed
+
