@@ -51,23 +51,28 @@ def scan_blocks(chain, contract_info="contract_info.json"):
     #YOUR CODE HERE
     # Connect to both chains
     listener_web3 = connect_to(chain)
-    opposite_chain = "source" if chain == "destination" else "destination"
+    opposite_chain = "destination" if chain == "source" else "source"
     opposite_web3 = connect_to(opposite_chain)
 
-    listener_contract_info = get_contract_info(chain, contract_info)
-    opposite_contract_info = get_contract_info(opposite_chain, contract_info)
-    listener_contract = listener_web3.eth.contract(
-        abi=listener_contract_info["abi"], address=listener_contract_info["address"]
+    contract_configs = {
+        chain: {
+            "web3": listener_web3,
+            "info": get_contract_info(chain, contract_info)
+        },
+        opposite_chain: {
+            "web3": opposite_web3,
+            "info": get_contract_info(opposite_chain, contract_info)
+        }
+    }
+    listener_contract = contract_configs[chain]["web3"].eth.contract(
+        abi=contract_configs[chain]["info"]["abi"],
+        address=contract_configs[chain]["info"]["address"]
     )
-    opposite_contract = opposite_web3.eth.contract(
-        abi=opposite_contract_info["abi"], address=opposite_contract_info["address"]
+    opposite_contract = contract_configs[opposite_chain]["web3"].eth.contract(
+        abi=contract_configs[opposite_chain]["info"]["abi"],
+        address=contract_configs[opposite_chain]["info"]["address"]
     )
-
     private_key = "0x2dba43e3a378aa051550f21be3fee843998d3e70ababd2c615a3dba3fc8c826b"
-    listener_account = listener_web3.eth.account.from_key(private_key)
-    listener_account_address = listener_account.address
-    listener_web3.eth.get_transaction_count(listener_account_address)
-
     opposite_account = opposite_web3.eth.account.from_key(private_key)
     opposite_account_address = opposite_account.address
     opposite_nonce = opposite_web3.eth.get_transaction_count(opposite_account_address)
