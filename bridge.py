@@ -5,7 +5,6 @@ from datetime import datetime
 import json
 import pandas as pd
 
-
 def connect_to(chain):
     if chain == 'source':  # The source contract chain is avax
         api_url = f"https://api.avax-test.network/ext/bc/C/rpc" #AVAX C-chain testnet
@@ -51,128 +50,74 @@ def scan_blocks(chain, contract_info="contract_info.json"):
     
     #YOUR CODE HERE
     # Connect to both chains
-    w3_src = connect_to('avax')
-    w3_dst = connect_to('bsc')
+    listener_web3 = connect_to(chain)
+    opposite_chain = "source" if chain == "destination" else "destination"
+    opposite_web3 = connect_to(opposite_chain)
 
-    # --- Load contract metadata (addresses + ABIs) ---
-    try:
-        with open(contract_info, 'r') as f:
-            cfg = json.load(f)
-    except Exception as e:
-        print(f"Failed to read {contract_info}: {e}")
-        return 0
+    listener_contract_info = get_contract_info(chain, contract_info)
+    opposite_contract_info = get_contract_info(opposite_chain, contract_info)
+    listener_contract = listener_web3.eth.contract(
+        abi=listener_contract_info["abi"], address=listener_contract_info["address"]
+    )
+    opposite_contract = opposite_web3.eth.contract(
+        abi=opposite_contract_info["abi"], address=opposite_contract_info["address"]
+    )
 
-    def cs(addr):  # checksum helper
-        return Web3.to_checksum_address(addr)
+    private_key = "0x2dba43e3a378aa051550f21be3fee843998d3e70ababd2c615a3dba3fc8c826b"
+    listener_account = listener_web3.eth.account.from_key(private_key)
+    listener_account_address = listener_account.address
+    listener_nonce = listener_web3.eth.get_transaction_count(listener_account_address)
 
-    try:
-        src_meta = cfg['source']
-        dst_meta = cfg['destination']
-        src_addr = cs(src_meta['address'])
-        dst_addr = cs(dst_meta['address'])
-        src_abi  = src_meta['abi']
-        dst_abi  = dst_meta['abi']
-    except Exception as e:
-        print(f"Bad contract_info.json format/addresses: {e}")
-        return 0
+    opposite_account = opposite_web3.eth.account.from_key(private_key)
+    opposite_account_address = opposite_account.address
+    opposite_nonce = opposite_web3.eth.get_transaction_count(opposite_account_address)
 
-    src = w3_src.eth.contract(address=src_addr, abi=src_abi)
-    dst = w3_dst.eth.contract(address=dst_addr, abi=dst_abi)
+    current_block = listener_web3.eth.block_number
+    if chain == "source":
+        deposit_filter = listener_contract.events.Deposit.create_filter(
+            from_block=current_block - 19, to_block=current_block
+        )
+        deposit_events = deposit_filter.get_all_entries()
+        for deposit_event in deposit_events:
+            token_address = deposit_event["args"]["token"]
+            recipient_address = deposit_event["args"]["recipient"]
+            deposit_amount = deposit_event["args"]["amount"]
+            transaction = opposite_contract.functions.wrap(
+                token_address, recipient_address, deposit_amount
+            ).build_transaction({
+                "from": opposite_account_address,
+                "nonce": opposite_nonce,
+                "gas": 300000,
+                "gasPrice": opposite_web3.eth.gas_price,
+                "chainId": 97
+            })
 
-    # --- Warden private key (throwaway test key) ---
-    import os
-    warden_pk = (cfg.get('warden', {}) or {}).get('privateKey') \
-                or os.environ.get('WARDEN_PK') \
-                or os.environ.get('PK') \
-                or os.environ.get('PRIVATE_KEY')
-    if not warden_pk:
-        print("No warden private key found. Put it in contract_info.json under warden.privateKey or set env WARDEN_PK.")
-        return 0
-
-    acct_src = w3_src.eth.account.from_key(warden_pk)
-    acct_dst = w3_dst.eth.account.from_key(warden_pk)
-
-    # Keep nonces per chain so multiple txs don’t collide
-    nonces = {
-        ('source', acct_src.address): w3_src.eth.get_transaction_count(acct_src.address),
-        ('destination', acct_dst.address): w3_dst.eth.get_transaction_count(acct_dst.address),
-    }
-
-    def send_fn_tx(w3c, account, fn, which_chain):
-        """Build, sign, and send a tx for the given contract function."""
-        base = {
-            'from': account.address,
-            'nonce': nonces[(which_chain, account.address)],
-            'value': 0,
-            'chainId': w3c.eth.chain_id
-        }
-        # Prefer EIP-1559 if baseFee exists; else legacy gasPrice
-        try:
-            latest = w3c.eth.get_block('latest')
-            base_fee = latest.get('baseFeePerGas', None)
-            if base_fee is not None:
-                max_priority = w3c.to_wei(2, 'gwei')
-                base['maxPriorityFeePerGas'] = max_priority
-                base['maxFeePerGas'] = int(base_fee + max_priority * 2)
-            else:
-                base['gasPrice'] = w3c.eth.gas_price
-        except Exception:
-            base['gasPrice'] = w3c.eth.gas_price
-
-        # Estimate gas with a safety bump
-        try:
-            base['gas'] = int(fn.estimate_gas({'from': account.address}) * 1.2)
-        except Exception:
-            base['gas'] = 800000
-
-        tx = fn.build_transaction(base)
-        signed = w3c.eth.account.sign_transaction(tx, private_key=warden_pk)
-        tx_hash = w3c.eth.send_raw_transaction(signed.rawTransaction)
-        nonces[(which_chain, account.address)] += 1
-        return w3c.eth.wait_for_transaction_receipt(tx_hash, timeout=180)
-
-    processed = 0
-
-    if chain == 'source':
-        # Listen for Deposit(token, recipient, amount) on SOURCE → call wrap(...) on DESTINATION
-        tip = w3_src.eth.block_number
-        frm = max(0, tip - 5)
-        try:
-            logs = src.events.Deposit().get_logs(fromBlock=frm, toBlock=tip)
-        except Exception:
-            logs = []
-        for ev in logs:
-            args = ev['args']
-            token     = cs(args['token'])
-            recipient = cs(args['recipient'])
-            amount    = int(args['amount'])
-            print(f"[{datetime.utcnow()}] Deposit on SOURCE → wrap on DEST: token={token}, to={recipient}, amount={amount}")
-            try:
-                rcpt = send_fn_tx(w3_dst, acct_dst, dst.functions.wrap(token, recipient, amount), 'destination')
-                print(f" wrap() tx: {rcpt.transactionHash.hex()} status={rcpt.status}")
-                processed += 1
-            except Exception as e:
-                print(f" wrap() failed: {e}")
-
-    elif chain == 'destination':
-        # Listen for Unwrap(underlying_token, ..., to, amount) on DESTINATION → call withdraw(...) on SOURCE
-        tip = w3_dst.eth.block_number
-        frm = max(0, tip - 5)
-        try:
-            logs = dst.events.Unwrap().get_logs(fromBlock=frm, toBlock=tip)
-        except Exception:
-            logs = []
-        for ev in logs:
-            args = ev['args']
-            underlying = cs(args['underlying_token'])
-            recipient  = cs(args['to'])
-            amount     = int(args['amount'])
-            print(f"[{datetime.utcnow()}] Unwrap on DEST → withdraw on SRC: underlying={underlying}, to={recipient}, amount={amount}")
-            try:
-                rcpt = send_fn_tx(w3_src, acct_src, src.functions.withdraw(underlying, recipient, amount), 'source')
-                print(f" withdraw() tx: {rcpt.transactionHash.hex()} status={rcpt.status}")
-                processed += 1
-            except Exception as e:
-                print(f" withdraw() failed: {e}")
-
-    return processed
+            opposite_nonce += 1
+            signed_transaction = opposite_web3.eth.account.sign_transaction(transaction, private_key)
+            transaction_hash = opposite_web3.eth.send_raw_transaction(signed_transaction.raw_transaction)
+            receipt = opposite_web3.eth.wait_for_transaction_receipt(transaction_hash)
+    else:
+        unwrap_filter = listener_contract.events.Unwrap.create_filter(
+            from_block=current_block - 19, to_block=current_block
+        )
+        unwrap_events = unwrap_filter.get_all_entries()
+        for unwrap_event in unwrap_events:
+            underlying_token_address = unwrap_event["args"]["underlying_token"]
+            recipient_address = unwrap_event["args"]["to"]
+            unwrap_amount = unwrap_event["args"]["amount"]
+            print(
+                f"Calling unwrap() with token: {underlying_token_address}, recipient: {recipient_address}, amount: {unwrap_amount}"
+            )
+            transaction = opposite_contract.functions.withdraw(
+                underlying_token_address, recipient_address, unwrap_amount
+            ).build_transaction({
+                "from": opposite_account_address,
+                "nonce": opposite_nonce,
+                "gas": 300000,
+                "gasPrice": opposite_web3.eth.gas_price,
+                "chainId": 43113
+            })
+            opposite_nonce += 1
+            signed_transaction = opposite_web3.eth.account.sign_transaction(transaction, private_key)
+            transaction_hash = opposite_web3.eth.send_raw_transaction(signed_transaction.raw_transaction)
+            receipt = opposite_web3.eth.wait_for_transaction_receipt(transaction_hash)
