@@ -66,58 +66,48 @@ def scan_blocks(chain, contract_info="contract_info.json"):
     private_key = "0x2dba43e3a378aa051550f21be3fee843998d3e70ababd2c615a3dba3fc8c826b"
     listener_account = listener_web3.eth.account.from_key(private_key)
     listener_account_address = listener_account.address
-    listener_nonce = listener_web3.eth.get_transaction_count(listener_account_address)
+    listener_web3.eth.get_transaction_count(listener_account_address)
 
     opposite_account = opposite_web3.eth.account.from_key(private_key)
     opposite_account_address = opposite_account.address
     opposite_nonce = opposite_web3.eth.get_transaction_count(opposite_account_address)
 
     current_block = listener_web3.eth.block_number
-    if chain == "source":
-        deposit_filter = listener_contract.events.Deposit.create_filter(
-            from_block=current_block - 19, to_block=current_block
-        )
-        deposit_events = deposit_filter.get_all_entries()
-        for deposit_event in deposit_events:
-            token_address = deposit_event["args"]["token"]
-            recipient_address = deposit_event["args"]["recipient"]
-            deposit_amount = deposit_event["args"]["amount"]
-            transaction = opposite_contract.functions.wrap(
-                token_address, recipient_address, deposit_amount
-            ).build_transaction({
-                "from": opposite_account_address,
-                "nonce": opposite_nonce,
-                "gas": 300000,
-                "gasPrice": opposite_web3.eth.gas_price,
-                "chainId": 97
-            })
+    chain_config = {
+        "source": {
+            "event_name": "Deposit",
+            "opposite_function": "wrap",
+            "chain_id": 97
+        },
+        "destination": {
+            "event_name": "Unwrap",
+            "opposite_function": "withdraw",
+            "chain_id": 43113
+        }
+    }
+    config = chain_config[chain]
+    event_filter = getattr(listener_contract.events, config["event_name"]).create_filter(
+        from_block=current_block - 19, to_block=current_block
+    )
+    events = event_filter.get_all_entries()
 
-            opposite_nonce += 1
-            signed_transaction = opposite_web3.eth.account.sign_transaction(transaction, private_key)
-            transaction_hash = opposite_web3.eth.send_raw_transaction(signed_transaction.raw_transaction)
-            receipt = opposite_web3.eth.wait_for_transaction_receipt(transaction_hash)
-    else:
-        unwrap_filter = listener_contract.events.Unwrap.create_filter(
-            from_block=current_block - 19, to_block=current_block
-        )
-        unwrap_events = unwrap_filter.get_all_entries()
-        for unwrap_event in unwrap_events:
-            underlying_token_address = unwrap_event["args"]["underlying_token"]
-            recipient_address = unwrap_event["args"]["to"]
-            unwrap_amount = unwrap_event["args"]["amount"]
-            print(
-                f"Calling unwrap() with token: {underlying_token_address}, recipient: {recipient_address}, amount: {unwrap_amount}"
-            )
-            transaction = opposite_contract.functions.withdraw(
-                underlying_token_address, recipient_address, unwrap_amount
-            ).build_transaction({
-                "from": opposite_account_address,
-                "nonce": opposite_nonce,
-                "gas": 300000,
-                "gasPrice": opposite_web3.eth.gas_price,
-                "chainId": 43113
-            })
-            opposite_nonce += 1
-            signed_transaction = opposite_web3.eth.account.sign_transaction(transaction, private_key)
-            transaction_hash = opposite_web3.eth.send_raw_transaction(signed_transaction.raw_transaction)
-            receipt = opposite_web3.eth.wait_for_transaction_receipt(transaction_hash)
+    for event in events:
+        args = event["args"]
+        token_address = args["token"] if chain == "source" else args["underlying_token"]
+        recipient_address = args["recipient"] if chain == "source" else args["to"]
+        amount = args["amount"]
+
+        transaction = getattr(opposite_contract.functions, config["opposite_function"])(
+            token_address, recipient_address, amount
+        ).build_transaction({
+            "from": opposite_account_address,
+            "nonce": opposite_nonce,
+            "gas": 300000,
+            "gasPrice": opposite_web3.eth.gas_price,
+            "chainId": config["chain_id"]
+        })
+
+        opposite_nonce += 1
+        signed_transaction = opposite_web3.eth.account.sign_transaction(transaction, private_key)
+        transaction_hash = opposite_web3.eth.send_raw_transaction(signed_transaction.raw_transaction)
+        opposite_web3.eth.wait_for_transaction_receipt(transaction_hash)
